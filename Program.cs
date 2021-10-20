@@ -6,6 +6,7 @@ using Windows.Devices.Bluetooth.Rfcomm;
 using Windows.Storage.Streams;
 using Windows.Security.Cryptography;
 using Windows.Networking.Sockets;
+using System.Threading;
 
 namespace BlueClassicWin10
 {
@@ -54,13 +55,19 @@ namespace BlueClassicWin10
                     await socket.ConnectAsync(rfcommResult.Services[selectedService].ConnectionHostName, rfcommResult.Services[selectedService].ConnectionServiceName);
                     Console.WriteLine("Connected to service: " + rfcommResult.Services[selectedService].ServiceId.Uuid);
 
+                    CancellationTokenSource source = new CancellationTokenSource();
+                    CancellationToken cancelToken = source.Token;
                     Task listenOnChannel = new TaskFactory().StartNew(async () =>
                     {
                         while (true)
                         {
-                            await ReadWrite.Read(socket);
+                            if (cancelToken.IsCancellationRequested)
+                            {
+                                return;
+                            }
+                            await ReadWrite.Read(socket, source);
                         }
-                    });
+                    }, cancelToken);
 
                     Console.ReadKey();
                 }
@@ -85,7 +92,7 @@ namespace BlueClassicWin10
 
     static class ReadWrite
     {
-        public static async Task Read(StreamSocket socket)
+        public static async Task Read(StreamSocket socket, CancellationTokenSource source)
         {
             IBuffer buffer = new Windows.Storage.Streams.Buffer(1024);
             uint bytesRead = 1024;
@@ -98,18 +105,18 @@ namespace BlueClassicWin10
 
             if (output.Length != 0)
             {
-                Console.WriteLine("Recieved: " + output.Replace("\r", ""));
+                Console.WriteLine("Recieved :" + output.Replace("\r", " "));
                 if (output.Contains("IPHONEACCEV"))
                 {
                     try
                     {
                         var batteryCmd = output.Substring(output.IndexOf("IPHONEACCEV"));
-                        Console.WriteLine("Battery Level: " + Int32.Parse((output.Substring(output.LastIndexOf(",") + 1)) + 1) * 10);
+                        Console.WriteLine("Battery level :" + (Int32.Parse(batteryCmd.Substring(batteryCmd.LastIndexOf(",") + 1)) + 1) * 10);
+                        source.Cancel();
                     }
                     catch (Exception e)
                     {
-                        Console.WriteLine("Could not retrieve battery level " + e.Message);
-                        Console.ReadKey();
+                        Console.WriteLine("Could not retrieve " + e.Message);
                     }
                 }
             }
